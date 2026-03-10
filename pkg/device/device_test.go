@@ -17,9 +17,11 @@ func TestDevice(t *testing.T) {
 
 var _ = ginkgo.Describe("GetDevices", func() {
 	originalGetDeviceInfo := getDeviceInfo
+	originalGetPCIERootID := getPCIERootID
 
 	ginkgo.AfterEach(func() {
 		getDeviceInfo = originalGetDeviceInfo
+		getPCIERootID = originalGetPCIERootID
 	})
 
 	ginkgo.It("returns an error when device info retrieval fails", func() {
@@ -59,6 +61,10 @@ var _ = ginkgo.Describe("GetDevices", func() {
 				},
 			}, nil
 		}
+		getPCIERootID = func(busID string) (string, error) {
+			gomega.Expect(busID).To(gomega.Equal("0000:01:00.0"))
+			return "0000:00:01.0", nil
+		}
 
 		devices, err := GetDevices(context.Background())
 
@@ -72,11 +78,36 @@ var _ = ginkgo.Describe("GetDevices", func() {
 			MemoryTotalBytes: 17179869184,
 			PCIDeviceID:      "0x1234",
 			PCIBusID:         "0000:01:00.0",
+			PCIERootID:       "0000:00:01.0",
 			PCINumaNode:      "0",
 			PCILinkSpeed:     "16GT/s",
 			PCILinkWidth:     "x16",
 			FirmwareVersion:  "fw-0.9.0",
 			KMDVersion:       "kmd-1.2.3",
 		}))
+	})
+
+	ginkgo.It("keeps device collection when PCIe root lookup fails", func() {
+		getDeviceInfo = func(context.Context) (*rblnsmi.RblnSmi, error) {
+			return &rblnsmi.RblnSmi{
+				Devices: []rblnsmi.Device{
+					{
+						Device: "rbln0",
+						PCI: rblnsmi.PCIInfo{
+							BusID: "0000:01:00.0",
+						},
+					},
+				},
+			}, nil
+		}
+		getPCIERootID = func(string) (string, error) {
+			return "", errors.New("sysfs read failed")
+		}
+
+		devices, err := GetDevices(context.Background())
+
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(devices).To(gomega.HaveLen(1))
+		gomega.Expect(devices[0].PCIERootID).To(gomega.BeEmpty())
 	})
 })
