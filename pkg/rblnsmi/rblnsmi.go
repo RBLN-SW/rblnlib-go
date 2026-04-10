@@ -51,10 +51,13 @@ type Memory struct {
 }
 
 const (
-	rblnSmiCommand     = "rbln-smi"
-	rblnSmiGroupOption = "group"
-	defaultExecTimeout = 5 * time.Second
-	defaultGroupID     = "0"
+	rblnSmiCommand             = "rbln-smi"
+	rblnSmiGroupOption         = "group"
+	defaultQueryTimeout        = 5 * time.Second
+	defaultGroupDestroyTimeout = 10 * time.Second
+	defaultGroupCreateTimeout  = 10 * time.Second
+	defaultGroupID             = "0"
+	commandOutputLimitBytes    = 4096
 )
 
 func getRblnSmiAbsolutePath() (string, error) {
@@ -79,7 +82,7 @@ func getRblnSmiAbsolutePath() (string, error) {
 	return abs, nil
 }
 
-func runRblnSmiCommand(ctx context.Context, args ...string) ([]byte, error) {
+func runRblnSmiCommand(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
 	abs, err := getRblnSmiAbsolutePath()
 	if err != nil {
 		return nil, err
@@ -88,28 +91,54 @@ func runRblnSmiCommand(ctx context.Context, args ...string) ([]byte, error) {
 	if ctx == nil {
 		return nil, errors.New("context must not be nil")
 	}
-	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, abs, args...)
 
+	start := time.Now()
 	out, err := cmd.CombinedOutput()
+	duration := time.Since(start)
 	if err != nil {
+		details := []string{fmt.Sprintf("duration=%s", duration)}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			details = append(details, fmt.Sprintf("contextErr=%v", ctxErr))
+		}
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			status, ok := ee.Sys().(syscall.WaitStatus)
 			if ok {
-				return nil, fmt.Errorf("command failed with exit code %d: %s", status.ExitStatus(), string(out))
+				if status.Exited() {
+					details = append(details, fmt.Sprintf("exitCode=%d", status.ExitStatus()))
+				}
+				if status.Signaled() {
+					details = append(details, fmt.Sprintf("signal=%s", status.Signal()))
+				}
+				if status.CoreDump() {
+					details = append(details, "coreDump=true")
+				}
+				if !status.Exited() && !status.Signaled() {
+					details = append(details, "waitStatus=unknown")
+				}
+			} else {
+				details = append(details, "waitStatus=unknown")
 			}
-			return nil, fmt.Errorf("command failed with unknown exit status: %s", string(out))
+		} else {
+			details = append(details, fmt.Sprintf("execErr=%v", err))
 		}
-		return nil, fmt.Errorf("failed to start command: %w", err)
+
+		formattedCommand := fmt.Sprintf("%s %s", abs, strings.Join(args, " "))
+		output := summarizeCommandOutput(out)
+		if output == "" {
+			return nil, fmt.Errorf("%s failed (%s)", formattedCommand, strings.Join(details, ", "))
+		}
+		return nil, fmt.Errorf("%s failed (%s): %s", formattedCommand, strings.Join(details, ", "), output)
 	}
 	return out, nil
 }
 
 func getGroupedDeviceInfoFromRblnSmi(ctx context.Context) (*RblnSmi, error) {
-	out, err := runRblnSmiCommand(ctx, "-g", "-j")
+	out, err := runRblnSmiCommand(ctx, defaultQueryTimeout, "-g", "-j")
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +150,7 @@ func getGroupedDeviceInfoFromRblnSmi(ctx context.Context) (*RblnSmi, error) {
 }
 
 func getDeviceInfoFromRblnSmi(ctx context.Context) (*RblnSmi, error) {
-	out, err := runRblnSmiCommand(ctx, "-j")
+	out, err := runRblnSmiCommand(ctx, defaultQueryTimeout, "-j")
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +249,7 @@ func DestroyRsdGroup(ctx context.Context, deviceIDs []string) error {
 
 	groupIDs := getRsdGroupIDs(smiInfo, deviceIDs)
 	if len(groupIDs) > 0 {
-		_, err = runRblnSmiCommand(ctx, rblnSmiGroupOption, "-d", strings.Join(groupIDs, ","))
+		_, err = runRblnSmiCommand(ctx, defaultGroupDestroyTimeout, rblnSmiGroupOption, "-d", strings.Join(groupIDs, ","))
 		if err != nil {
 			return err
 		}
@@ -251,6 +280,7 @@ func CreateRsdGroup(ctx context.Context, devices []string) (groupID string, err 
 
 	_, err = runRblnSmiCommand(
 		ctx,
+		defaultGroupCreateTimeout,
 		rblnSmiGroupOption,
 		"-c", groupID,
 		"-a", strings.Join(strIDs, ","),
@@ -262,4 +292,22 @@ func CreateRsdGroup(ctx context.Context, devices []string) (groupID string, err 
 
 	glog.Infof("Created RSD group %s for devices: %s", groupID, strings.Join(devices, ","))
 	return groupID, nil
+}
+
+func summarizeCommandOutput(out []byte) string {
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return ""
+	}
+	if len(trimmed) <= commandOutputLimitBytes {
+		return trimmed
+	}
+
+	half := commandOutputLimitBytes / 2
+	return fmt.Sprintf(
+		"%s\n... truncated %d bytes ...\n%s",
+		trimmed[:half],
+		len(trimmed)-commandOutputLimitBytes,
+		trimmed[len(trimmed)-half:],
+	)
 }
