@@ -67,7 +67,7 @@ Use `rblnsmi.GetDeviceInfo(ctx)` when you want access to the raw `rbln-smi` mode
 
 ### `pkg/rsdgroup`
 
-Use `rsdgroup.RecreateRsdGroup(deviceIDs)` when you want a higher-level helper that destroys existing groups for the target devices, recreates the group, and returns the corresponding `/dev/rsd*` path.
+Use `rsdgroup.RecreateRsdGroup(deviceIDs)` when you want a higher-level helper that destroys existing groups for the target devices, recreates the group, and returns the corresponding `/dev/rsd*` path. It now returns an error instead of silently falling back to `/dev/rsd0`.
 
 ## Development
 

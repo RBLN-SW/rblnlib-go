@@ -13,7 +13,6 @@ import (
 
 const (
 	rsdDevice        = "/dev/rsd"
-	defaultRsdDevice = rsdDevice + "0"
 	lockPollInterval = 100 * time.Millisecond
 	lockFilePerm     = 0o644
 	rsdGroupLockFile = "/var/run/rbln-rsd-group.lock"
@@ -22,8 +21,8 @@ const (
 
 // RecreateRsdGroup removes existing groups for the given devices, then creates
 // a new group that includes those devices.
-// It returns a /dev/rsd* path, or /dev/rsd0 on failure.
-func RecreateRsdGroup(deviceIDs []string) string {
+// It returns the corresponding /dev/rsd* path or an error.
+func RecreateRsdGroup(deviceIDs []string) (string, error) {
 	lockCtx, cancel := context.WithTimeout(context.Background(), lockTimeout)
 	defer cancel()
 
@@ -37,10 +36,9 @@ func RecreateRsdGroup(deviceIDs []string) string {
 	})
 
 	if err != nil {
-		glog.Errorf("Failed to create RSD groups: %q", err)
-		return defaultRsdDevice
+		return "", err
 	}
-	return rsdDevice + groupID
+	return rsdDevice + groupID, nil
 }
 
 func withRsdLock(ctx context.Context, fn func() (string, error)) (string, error) {
