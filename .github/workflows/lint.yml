@@ -18,10 +18,21 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Check licenses and third-party notices
-        run: make license-check verify-third-party-notices
-
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.9.0
+
+  license-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check licenses and third-party notices
+        run: make license-check verify-third-party-notices
