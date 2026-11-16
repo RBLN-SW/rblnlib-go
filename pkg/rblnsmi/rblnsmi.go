@@ -94,6 +94,7 @@ func runRblnSmiCommand(ctx context.Context, timeout time.Duration, args ...strin
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- abs is always rbln-smi (getRblnSmiAbsolutePath) and no shell is involved.
 	cmd := exec.CommandContext(ctx, abs, args...)
 
 	start := time.Now()
