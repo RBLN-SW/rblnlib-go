@@ -3,7 +3,7 @@ include versions.mk
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: help test test-device test-race tidy vendor fmt lint lint-fix
+.PHONY: help test test-device test-race vet check-linux tidy vendor fmt lint lint-fix
 
 help:
 	@echo "Available targets:"
@@ -16,6 +16,16 @@ help:
 
 test:
 	$(GO) test ./...
+
+test-race:
+	$(GO) test -race ./...
+
+vet:
+	$(GO) vet ./...
+
+check-linux:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build ./...
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build ./...
 
 fmt:
 	$(GO) fmt ./...
