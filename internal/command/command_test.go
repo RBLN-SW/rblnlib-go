@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -29,13 +30,14 @@ func TestHelperProcess(t *testing.T) {
 }
 func TestSeparatedOutputAndDeadline(t *testing.T) {
 	t.Setenv("RBLNLIB_COMMAND_HELPER", "1")
-	out, err := Run(context.Background(), os.Args[0], "-test.run=TestHelperProcess", "--", "json")
+	ctx := context.Background()
+	out, err := Run(ctx, exec.CommandContext(ctx, os.Args[0], "-test.run=TestHelperProcess", "--", "json"))
 	if err != nil || string(out) != `{"devices":[]}` {
 		t.Fatalf("stdout polluted: %q %v", out, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 40*time.Millisecond)
 	defer cancel()
-	if _, err := Run(ctx, os.Args[0], "-test.run=TestHelperProcess", "--", "wait"); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := Run(ctx, exec.CommandContext(ctx, os.Args[0], "-test.run=TestHelperProcess", "--", "wait")); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline: %v", err)
 	}
 	b := &buffer{limit: 3}
@@ -47,7 +49,8 @@ func TestSeparatedOutputAndDeadline(t *testing.T) {
 
 func TestBoundedCommandStderr(t *testing.T) {
 	t.Setenv("RBLNLIB_COMMAND_HELPER", "1")
-	_, err := Run(context.Background(), os.Args[0], "-test.run=TestHelperProcess", "--", "stderr")
+	ctx := context.Background()
+	_, err := Run(ctx, exec.CommandContext(ctx, os.Args[0], "-test.run=TestHelperProcess", "--", "stderr"))
 	var e *system.Error
 	if !errors.As(err, &e) || len(e.Message) != 4096 {
 		t.Fatal("expected a bounded stderr diagnostic")
@@ -58,7 +61,7 @@ func TestCommandDeadlineWithInheritedPipe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := Run(ctx, "sh", "-c", "sleep 3 & wait")
+	_, err := Run(ctx, exec.CommandContext(ctx, "sh", "-c", "sleep 3 & wait"))
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 2*time.Second {
 		t.Fatalf("inherited pipe delayed return: %s, %v", time.Since(start), err)
 	}
