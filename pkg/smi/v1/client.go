@@ -20,6 +20,7 @@ import (
 )
 
 type Options struct {
+	// Binary selects the SMI executable. Set it only from trusted configuration.
 	Binary                       string
 	HostRoot                     string
 	DevRoot                      string
@@ -32,7 +33,7 @@ type Options struct {
 }
 type Client struct {
 	opts Options
-	run  func(context.Context, string, ...string) ([]byte, error)
+	run  func(context.Context, *exec.Cmd) ([]byte, error)
 }
 
 func New(opts Options) (*Client, error) {
@@ -83,11 +84,15 @@ func (c *Client) execute(ctx context.Context, timeout time.Duration, args ...str
 			}
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if c.opts.HostRoot != "" {
 		args = append([]string{c.opts.HostRoot, binary}, args...)
-		binary = "chroot"
+		return c.run(ctx, exec.CommandContext(ctx, "chroot", args...))
 	}
-	return c.run(ctx, binary, args...)
+	// nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- binary is the configured SMI executable or a discovered rbln-smi. Device input is passed only in args.
+	return c.run(ctx, exec.CommandContext(ctx, binary, args...))
 }
 
 type scalar string

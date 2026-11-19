@@ -37,6 +37,34 @@ func TestVFIONodesAndIOMMUMembership(t *testing.T) {
 	}
 }
 
+func TestProbeHostDriverCommand(t *testing.T) {
+	for _, tc := range []struct {
+		program string
+		opts    Options
+		want    string
+	}{
+		{"rbln-smi", Options{}, "<--version>"},
+		{"chroot", Options{HostRoot: "/host root"}, "</host root><rbln-smi><--version>"},
+		{"nsenter", Options{HostPID: 42}, "<--target><42><--mount><--uts><--ipc><--><env><TMPDIR=/tmp><rbln-smi><--version>"},
+	} {
+		t.Run(tc.program, func(t *testing.T) {
+			bin := t.TempDir()
+			t.Setenv("PATH", bin)
+			if err := os.WriteFile(filepath.Join(bin, tc.program), []byte("#!/bin/sh\nprintf '<%s>' \"$@\"\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			c, err := New(tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := c.ProbeHostDriver(context.Background())
+			if err != nil || got != tc.want {
+				t.Fatalf("probe = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
 func TestModuleObservationAndBusyRemoval(t *testing.T) {
 	c := fixture(t)
 	m, err := c.Module(context.Background(), "rebellions")

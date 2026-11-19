@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -25,6 +26,36 @@ func smiFixture(t *testing.T) *Client {
 	return c
 }
 
+func TestVersionCommand(t *testing.T) {
+	const binary = "/opt/driver tools/custom-smi"
+	const root = "/host root"
+	for _, tc := range []struct {
+		name string
+		opts Options
+		want []string
+	}{
+		{"configured executable", Options{Binary: binary}, []string{binary, "--version"}},
+		{"host default", Options{HostRoot: root}, []string{"chroot", root, "rbln-smi", "--version"}},
+		{"host configured executable", Options{HostRoot: root, Binary: binary}, []string{"chroot", root, binary, "--version"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := New(tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+				if !reflect.DeepEqual(cmd.Args, tc.want) {
+					t.Fatalf("command args = %q, want %q", cmd.Args, tc.want)
+				}
+				return []byte("1.0"), nil
+			}
+			if _, err := c.Version(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func payload(address string, index any, group int, memory string) string {
 	return fmt.Sprintf(`{"device":"rbln%s","name":"RBLN-Test","npu":%v,"group_id":"%d","pci":{"bus_id":%q,"dev":"0x1220","numa_node":-1,"link_width":"16"},"memory":{"total":%q},"status":"normal"}`, address[5:7], index, group, address, memory)
 }
@@ -32,7 +63,7 @@ func payload(address string, index any, group int, memory string) string {
 func TestInventoryScalarCompatibilityAndPresence(t *testing.T) {
 	for _, index := range []string{"0", `"0"`} {
 		c := smiFixture(t)
-		c.run = func(context.Context, string, ...string) ([]byte, error) {
+		c.run = func(context.Context, *exec.Cmd) ([]byte, error) {
 			return []byte(`{"KMD_version":"4.0","devices":[` + payload(a, index, 0, "9007199254740993") + `]}`), nil
 		}
 		s, err := c.ListDevices(context.Background())
@@ -45,7 +76,7 @@ func TestInventoryScalarCompatibilityAndPresence(t *testing.T) {
 		}
 	}
 	c := smiFixture(t)
-	c.run = func(context.Context, string, ...string) ([]byte, error) {
+	c.run = func(context.Context, *exec.Cmd) ([]byte, error) {
 		return []byte(`{"devices":[` + payload(a, 0, 0, "N/A") + `]}`), nil
 	}
 	s, err := c.ListDevices(context.Background())
@@ -53,7 +84,7 @@ func TestInventoryScalarCompatibilityAndPresence(t *testing.T) {
 		t.Fatalf("unavailable memory became zero: %+v %v", s, err)
 	}
 	for _, data := range []string{`{}`, `{"devices":null}`, `not json`} {
-		c.run = func(context.Context, string, ...string) ([]byte, error) { return []byte(data), nil }
+		c.run = func(context.Context, *exec.Cmd) ([]byte, error) { return []byte(data), nil }
 		if _, err := c.ListDevices(context.Background()); !errors.Is(err, system.ErrInvalidData) {
 			t.Fatalf("invalid JSON accepted: %q %v", data, err)
 		}
@@ -64,7 +95,8 @@ func TestRSDUsesStablePCISelectorsAndVerifiesExactMembership(t *testing.T) {
 	c := smiFixture(t)
 	created := false
 	var commands [][]string
-	c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+		args := cmd.Args[1:]
 		if len(args) == 2 && args[0] == "group" && args[1] == "--help" {
 			return []byte("Attach devices using PCI addresses or device index"), nil
 		}
@@ -95,7 +127,8 @@ func TestRSDUsesStablePCISelectorsAndVerifiesExactMembership(t *testing.T) {
 func TestRSDRefusesPartialSelectionBeforeMutation(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		c := smiFixture(t)
-		c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+			args := cmd.Args[1:]
 			if len(args) == 2 && args[0] == "group" && args[1] == "--help" {
 				return []byte("Attach devices using PCI addresses or device index"), nil
 			}
@@ -122,7 +155,8 @@ func TestRSDReadbackFailureAndCommandErrorNeverReplay(t *testing.T) {
 	for _, commandFails := range []bool{true, false} {
 		c := smiFixture(t)
 		writes := 0
-		c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+			args := cmd.Args[1:]
 			if len(args) == 2 && args[0] == "group" && args[1] == "--help" {
 				return []byte("Attach devices using PCI addresses or device index"), nil
 			}
@@ -144,7 +178,7 @@ func TestRSDReadbackFailureAndCommandErrorNeverReplay(t *testing.T) {
 
 func TestLegacyPCIAttributesKeepSMISpelling(t *testing.T) {
 	c := smiFixture(t)
-	c.run = func(context.Context, string, ...string) ([]byte, error) {
+	c.run = func(context.Context, *exec.Cmd) ([]byte, error) {
 		return []byte(`{"devices":[{"device":"rbln0","pci":{"dev":"0x1220","bus_id":"0000:AB:00.0","numa_node":"-1","link_speed":"16GT/s","link_width":"x16"}}]}`), nil
 	}
 	s, err := c.ListDevices(context.Background())

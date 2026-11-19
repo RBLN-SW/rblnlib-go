@@ -29,11 +29,11 @@ func (b *buffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func Run(ctx context.Context, binary string, args ...string) ([]byte, error) {
+// Run collects bounded output from a command constructed with ctx.
+func Run(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, binary, args...)
 	// Allow a bounded drain if a descendant inherited an output pipe.
 	cmd.WaitDelay = 250 * time.Millisecond
 	stdout := &buffer{limit: 16 * 1024 * 1024}
@@ -47,10 +47,10 @@ func Run(ctx context.Context, binary string, args ...string) ([]byte, error) {
 		if errors.Is(err, exec.ErrNotFound) {
 			kind = system.Unsupported
 		}
-		return nil, &system.Error{Kind: kind, Op: binary, Message: stderr.data.String(), Cause: err}
+		return nil, &system.Error{Kind: kind, Op: cmd.Args[0], Message: stderr.data.String(), Cause: err}
 	}
 	if stdout.overflow {
-		return nil, &system.Error{Kind: system.InvalidData, Op: binary, Message: fmt.Sprintf("output exceeds %d bytes", stdout.limit)}
+		return nil, &system.Error{Kind: system.InvalidData, Op: cmd.Args[0], Message: fmt.Sprintf("output exceeds %d bytes", stdout.limit)}
 	}
 	return stdout.data.Bytes(), nil
 }

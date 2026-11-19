@@ -3,6 +3,7 @@ package smi
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,7 +16,8 @@ func TestLegacyRegroupResolvesDefaultGroupAfterRemoval(t *testing.T) {
 	c := smiFixture(t)
 	created, removed := false, false
 	var commands [][]string
-	c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+		args := cmd.Args[1:]
 		switch strings.Join(args, " ") {
 		case "group --help":
 			return []byte("Attach NPU ids to new RSD group (use with -c)"), nil
@@ -48,7 +50,8 @@ func TestLegacyAllocationPreservesUnrelatedGroupAndUsesRenumberedIndex(t *testin
 	c := smiFixture(t)
 	created := false
 	var commands [][]string
-	c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+		args := cmd.Args[1:]
 		switch strings.Join(args, " ") {
 		case "group --help":
 			return []byte("Attach NPU ids to new RSD group"), nil
@@ -72,7 +75,8 @@ func TestExplicitRegroupPolicyRetainsExactNewMembership(t *testing.T) {
 	c := smiFixture(t)
 	c.opts.ReplaceIntersectingGroups = true
 	created, removed := false, false
-	c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+		args := cmd.Args[1:]
 		switch strings.Join(args, " ") {
 		case "group --help":
 			return []byte("Attach NPU ids to new RSD group"), nil
@@ -102,7 +106,8 @@ func TestExplicitRegroupPolicyRetainsExactNewMembership(t *testing.T) {
 func TestUnknownSelectorContractRefusesMutation(t *testing.T) {
 	c := smiFixture(t)
 	calls := 0
-	c.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+	c.run = func(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+		args := cmd.Args[1:]
 		calls++
 		if strings.Join(args, " ") != "group --help" {
 			t.Fatal(args)

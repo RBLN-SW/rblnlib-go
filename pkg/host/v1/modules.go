@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -60,14 +61,23 @@ func (c *Client) Module(ctx context.Context, name string) (Module, error) {
 func (c *Client) run(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.opts.CommandTimeout)
 	defer cancel()
-	if c.opts.HostRoot != "" {
-		args = append([]string{c.opts.HostRoot, binary}, args...)
-		binary = "chroot"
-	} else if c.opts.HostPID != 0 {
-		args = append([]string{"--target", strconv.Itoa(c.opts.HostPID), "--mount", "--uts", "--ipc", "--", "env", "TMPDIR=/tmp", binary}, args...)
-		binary = "nsenter"
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return command.Run(ctx, binary, args...)
+	switch {
+	case c.opts.HostRoot != "":
+		args = append([]string{c.opts.HostRoot, binary}, args...)
+		return command.Run(ctx, exec.CommandContext(ctx, "chroot", args...))
+	case c.opts.HostPID != 0:
+		args = append([]string{"--target", strconv.Itoa(c.opts.HostPID), "--mount", "--uts", "--ipc", "--", "env", "TMPDIR=/tmp", binary}, args...)
+		return command.Run(ctx, exec.CommandContext(ctx, "nsenter", args...))
+	case binary == "modprobe":
+		return command.Run(ctx, exec.CommandContext(ctx, "modprobe", args...))
+	case binary == "rbln-smi":
+		return command.Run(ctx, exec.CommandContext(ctx, "rbln-smi", args...))
+	default:
+		return nil, &system.Error{Kind: system.Unsupported, Op: binary}
+	}
 }
 
 func (c *Client) LoadModule(ctx context.Context, name string) error {
