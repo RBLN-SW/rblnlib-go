@@ -55,7 +55,9 @@ Contexts bound RPCs, lock waits and polling. A synchronous kernel write or
 unmount can continue past a context deadline.
 
 `smi.Client.RecreateGroup` selects the RSD command syntax supported by the
-installed SMI and verifies the resulting membership. By default it returns a
+installed SMI. It reuses a private group with exactly the requested PCI addresses,
+preserving its device node across repeated allocations. After creating a group,
+it verifies the resulting membership. By default it returns a
 conflict if an intersecting group contains functions outside the request.
 `smi.Options.ReplaceIntersectingGroups` enables regrouping when the caller
 has established allocation ownership.

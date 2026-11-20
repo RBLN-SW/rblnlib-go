@@ -122,6 +122,12 @@ func TestRSDUsesStablePCISelectorsAndVerifiesExactMembership(t *testing.T) {
 	if g.ID != 1 || g.Node.Path != "/dev/rsd1" || !reflect.DeepEqual(commands, [][]string{{"group", "-c", "1", "-a", a + "," + b}}) {
 		t.Fatalf("stable selector mismatch: %+v %v", g, commands)
 	}
+	// Kubelet may allocate the same devices again for the next container.
+	// The first response still refers to this device node.
+	reused, err := c.RecreateGroup(context.Background(), []string{b, a})
+	if err != nil || !reflect.DeepEqual(reused, g) || len(commands) != 1 {
+		t.Fatalf("repeated allocation: group=%+v err=%v commands=%v", reused, err, commands)
+	}
 }
 
 func TestRSDRefusesPartialSelectionBeforeMutation(t *testing.T) {

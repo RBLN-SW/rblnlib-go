@@ -93,8 +93,9 @@ func (c *Client) ListGroups(ctx context.Context) ([]Group, error) {
 	return out, nil
 }
 
-// RecreateGroup validates exact membership before and after mutation. It
-// refuses to destroy a group containing any device outside the requested set.
+// RecreateGroup reuses a private group with exactly the requested members.
+// Otherwise it regroups the devices and verifies membership after creation.
+// Replacing a group with unrequested members requires ReplaceIntersectingGroups.
 // Returned node paths are not proof of udev readiness; the caller may use
 // host.WaitForNode before injecting them. Group 0 is never destroyed.
 func (c *Client) RecreateGroup(ctx context.Context, addresses []string) (group Group, err error) {
@@ -165,6 +166,11 @@ func (c *Client) RecreateGroup(ctx context.Context, addresses []string) (group G
 			} else {
 				outside = true
 			}
+		}
+		// Inventory contains one entry per normalized PCI address. Preserve the
+		// device node already returned to earlier allocations of this set.
+		if !outside && len(g.PCIAddresses) == len(wanted) {
+			return g, nil
 		}
 		if overlaps && outside && !c.opts.ReplaceIntersectingGroups {
 			return group, &system.Error{Kind: system.Conflict, Message: "existing RSD group includes devices outside the request"}
